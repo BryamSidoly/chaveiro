@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Gerador de Chaveiro STL</title>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/exporters/STLExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@latest/dist/opentype.min.js"></script>
+</head>
+
+<body>
+<input id="text" value="BRYAM">
+<input type="file" id="font">
+<button onclick="generate()">Gerar STL</button>
+
+<script>
+async function generate() {
+  const text = document.getElementById("text").value;
+  const fontFile = document.getElementById("font").files[0];
+
+  const font = await opentype.parse(await fontFile.arrayBuffer());
+
+  const path = font.getPath(text, 0, 0, 100);
+  const shapes = [];
+
+  path.commands.forEach(cmd => {
+    if (cmd.type === 'M') {
+      shapes.push(new THREE.Shape().moveTo(cmd.x, cmd.y));
+    }
+    if (cmd.type === 'L') {
+      shapes.at(-1).lineTo(cmd.x, cmd.y);
+    }
+    if (cmd.type === 'C') {
+      shapes.at(-1).bezierCurveTo(
+        cmd.x1, cmd.y1,
+        cmd.x2, cmd.y2,
+        cmd.x, cmd.y
+      );
+    }
+    if (cmd.type === 'Z') shapes.at(-1).closePath();
+  });
+
+  const geo = new THREE.ExtrudeGeometry(shapes, {
+    depth: 4,
+    bevelEnabled: false
+  });
+
+  geo.center();
+
+  // Furo do chaveiro
+  const hole = new THREE.CylinderGeometry(4, 4, 10, 32);
+  hole.rotateX(Math.PI / 2);
+  hole.translate(0, 40, 0);
+
+  // Aqui você aplicaria CSG para subtrair o furo
+
+  const exporter = new THREE.STLExporter();
+  const stl = exporter.parse(new THREE.Mesh(geo));
+
+  download(stl, "chaveiro.stl");
+}
+
+function download(data, fileName) {
+  const blob = new Blob([data], { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  a.click();
+}
+</script>
+</body>
+</html>
