@@ -15,6 +15,7 @@ body {
   padding: 12px;
   background: #1e1e1e;
   color: #fff;
+  overflow-y: auto;
 }
 #ui input, #ui select, #ui button {
   width: 100%;
@@ -22,6 +23,14 @@ body {
 }
 #viewer {
   flex: 1;
+}
+#log {
+  background: #000;
+  color: #0f0;
+  font-size: 12px;
+  padding: 6px;
+  height: 120px;
+  overflow-y: auto;
 }
 button {
   padding: 8px;
@@ -57,11 +66,11 @@ button {
   <label>Margem base</label>
   <input type="number" id="padding" value="6">
 
-  <label>Diâmetro do furo</label>
-  <input type="number" id="holeSize" value="6">
-
-  <button onclick="generate()">🔄 Atualizar</button>
+  <button onclick="generate()">🔄 Atualizar Preview</button>
   <button onclick="exportSTL()">💾 Exportar STL</button>
+
+  <h4>📜 Log</h4>
+  <div id="log"></div>
 </div>
 
 <div id="viewer"></div>
@@ -74,6 +83,12 @@ button {
 <script>
 let scene, camera, renderer, controls;
 let currentGroup;
+
+function log(msg) {
+  const el = document.getElementById("log");
+  el.innerHTML += msg + "<br>";
+  el.scrollTop = el.scrollHeight;
+}
 
 init();
 generate();
@@ -99,6 +114,8 @@ function init() {
   window.addEventListener("resize", resize);
   resize();
   animate();
+
+  log("✔ Scene inicializada");
 }
 
 function resize() {
@@ -116,77 +133,90 @@ function animate() {
 }
 
 async function generate() {
-  if (currentGroup) scene.remove(currentGroup);
-  currentGroup = new THREE.Group();
+  try {
+    log("⏳ Gerando modelo...");
 
-  const text = textInput();
-  const font = await opentype.load(fontSelect());
-  const fontSize = +val("fontSize");
-  const textHeight = +val("textHeight");
-  const baseHeight = +val("baseHeight");
-  const padding = +val("padding");
-  const holeSize = +val("holeSize");
+    if (currentGroup) scene.remove(currentGroup);
+    currentGroup = new THREE.Group();
 
-  const shapes = font.getPaths(text, 0, 0, fontSize)
-    .flatMap(p => p.toShapes(true));
+    const text = document.getElementById("text").value;
+    const fontUrl = document.getElementById("font").value;
+    const fontSize = +document.getElementById("fontSize").value;
+    const textHeight = +document.getElementById("textHeight").value;
+    const baseHeight = +document.getElementById("baseHeight").value;
+    const padding = +document.getElementById("padding").value;
 
-  const textGeo = new THREE.ExtrudeGeometry(shapes, {
-    depth: textHeight,
-    bevelEnabled: false
-  });
+    log("🔤 Carregando fonte...");
+    const font = await opentype.load(fontUrl);
 
-  textGeo.center();
-  const textMesh = new THREE.Mesh(
-    textGeo,
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
+    const path = font.getPath(text, 0, 0, fontSize);
+    const shapes = opentypePathToShapes(path);
 
-  const box = new THREE.Box3().setFromObject(textMesh);
-  const size = box.getSize(new THREE.Vector3());
+    if (!shapes.length) {
+      log("❌ Nenhum shape gerado");
+      return;
+    }
 
-  const baseGeo = new THREE.BoxGeometry(
-    size.x + padding * 2,
-    size.y + padding * 2,
-    baseHeight
-  );
+    log("✔ Shapes gerados: " + shapes.length);
 
-  const baseMesh = new THREE.Mesh(
-    baseGeo,
-    new THREE.MeshStandardMaterial({ color: 0x3366ff })
-  );
+    const textGeo = new THREE.ExtrudeGeometry(shapes, {
+      depth: textHeight,
+      bevelEnabled: false
+    });
 
-  baseMesh.position.z = -baseHeight / 2;
+    textGeo.center();
 
-  const holeGeo = new THREE.CylinderGeometry(
-    holeSize / 2,
-    holeSize / 2,
-    baseHeight + 1,
-    32
-  );
-  holeGeo.rotateX(Math.PI / 2);
+    const textMesh = new THREE.Mesh(
+      textGeo,
+      new THREE.MeshStandardMaterial({ color: 0xffffff })
+    );
 
-  const holeMesh = new THREE.Mesh(holeGeo);
-  holeMesh.position.y = size.y / 2 + padding / 2;
+    const box = new THREE.Box3().setFromObject(textMesh);
+    const size = box.getSize(new THREE.Vector3());
 
-  baseMesh.updateMatrix();
-  holeMesh.updateMatrix();
+    const baseGeo = new THREE.BoxGeometry(
+      size.x + padding * 2,
+      size.y + padding * 2,
+      baseHeight
+    );
 
-  const baseCSG = THREE.CSG.fromMesh(baseMesh)
-    .subtract(THREE.CSG.fromMesh(holeMesh));
+    const baseMesh = new THREE.Mesh(
+      baseGeo,
+      new THREE.MeshStandardMaterial({ color: 0x3366ff })
+    );
 
-  const finalBase = THREE.CSG.toMesh(
-    baseCSG,
-    baseMesh.matrix,
-    baseMesh.material
-  );
+    baseMesh.position.z = -baseHeight / 2;
 
-  currentGroup.add(finalBase);
-  currentGroup.add(textMesh);
+    currentGroup.add(baseMesh);
+    currentGroup.add(textMesh);
 
-  scene.add(currentGroup);
+    scene.add(currentGroup);
+    log("✅ Preview atualizado");
+  } catch (e) {
+    log("❌ Erro: " + e.message);
+  }
+}
+
+function opentypePathToShapes(path) {
+  const shapes = [];
+  let shape = new THREE.Shape();
+
+  for (const cmd of path.commands) {
+    if (cmd.type === "M") shape.moveTo(cmd.x, cmd.y);
+    else if (cmd.type === "L") shape.lineTo(cmd.x, cmd.y);
+    else if (cmd.type === "C")
+      shape.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y);
+    else if (cmd.type === "Z") {
+      shapes.push(shape);
+      shape = new THREE.Shape();
+    }
+  }
+
+  return shapes;
 }
 
 function exportSTL() {
+  if (!currentGroup) return;
   const exporter = new THREE.STLExporter();
   const data = exporter.parse(currentGroup);
   const blob = new Blob([data], { type: "application/octet-stream" });
@@ -194,16 +224,6 @@ function exportSTL() {
   a.href = URL.createObjectURL(blob);
   a.download = "chaveiro.stl";
   a.click();
-}
-
-function val(id) {
-  return document.getElementById(id).value;
-}
-function textInput() {
-  return document.getElementById("text").value;
-}
-function fontSelect() {
-  return document.getElementById("font").value;
 }
 </script>
 
