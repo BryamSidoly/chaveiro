@@ -147,8 +147,11 @@ async function generate() {
     const baseHeight = +document.getElementById("baseHeight").value;
     const padding = +document.getElementById("padding").value;
 
-    log("🔤 Carregando fonte...");
-    const font = await opentype.load(fontUrl);
+    log("📥 Baixando fonte...");
+const font = await opentype.load(fontUrl, err => {
+  if (err) throw new Error("Fonte inválida ou URL não retorna TTF");
+});
+
 
     const path = font.getPath(text, 0, 0, fontSize);
     const shapes = opentypePathToShapes(path);
